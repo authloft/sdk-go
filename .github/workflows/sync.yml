@@ -1,0 +1,78 @@
+name: Sync protobuf
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: '分支名'
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  sync-proto:
+    name: sync-proto
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout self branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure branch exists
+        run: |
+          if git ls-remote --exit-code --heads origin "${{ inputs.branch }}"; then
+            git checkout "${{ inputs.branch }}"
+          else
+            git checkout -b "${{ inputs.branch }}" origin/master
+          fi
+
+      - name: Checkout upstream repo
+        uses: actions/checkout@v4
+        with:
+          repository: authloft/authloft # 主仓库
+          ref: ${{ inputs.branch }}
+          path: upstream
+
+      # proto 唯一真相在主仓库 server/proto；拷贝到本仓 /proto（buf.gen.yaml 的
+      # 输入目录，已 gitignore 不入库），产物 gen/** 入库、随 commit 推回
+      - name: Copy protobuf from upstream
+        run: cp -r upstream/server/proto ${{ github.workspace }}/proto
+
+      - name: Setup buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          buf-version: 1.75.0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # 两插件均固定为生成入库时的版本（buf.gen.yaml 头注释；本仓 go.mod
+      # 依赖 connectrpc.com/connect v1.21.1），保证产物与仓库零 diff；
+      # 须在 Setup Go 之后执行，用 go.mod 固定的工具链构建
+      - name: Install protoc-gen-go
+        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.10
+
+      - name: Install protoc-gen-connect-go
+        run: go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.21.1
+
+      # buf.gen.yaml 在仓库根目录，无参执行（inputs 已固定，禁位置参数）
+      - name: Regenerate from proto
+        run: buf generate
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add gen
+          if git diff --cached --quiet; then
+            echo "no changes, skip push"
+            exit 0
+          fi
+          git commit -m "chore(protobuf): sync from upstream (${{ inputs.branch }})"
+          git push origin "${{ inputs.branch }}"

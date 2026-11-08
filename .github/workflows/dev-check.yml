@@ -1,0 +1,54 @@
+name: Dev Check
+
+# 常规代码验证：只做 build / vet / test 与零污染断言；
+# 不含 proto 生成与一致性门禁（那归 sync.yml 的 /proto 拉取生成流程，两链分离）。
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # 核心 module（仓库根）：build / vet / test
+      - name: Core build / vet / test
+        run: |
+          go build ./...
+          go vet ./...
+          go test ./...
+
+      # 三个 adapter module：逐 module 执行（嵌套 module 会被根目录 ./... 剪枝）
+      - name: Adapters build / vet / test
+        run: |
+          for d in adapter/gin adapter/fiber-v2 adapter/fiber-v3; do
+            (cd "$d" && go build ./... && go vet ./... && go test ./...)
+          done
+
+      # 三个 examples module：不在 go.work、经自身 replace 解析，需 GOWORK=off
+      - name: Examples build
+        run: |
+          for d in examples/gin examples/fiber-v2 examples/fiber-v3; do
+            (cd "$d" && GOWORK=off go build ./...)
+          done
+
+      # 零污染断言（DESIGN.md §6.1）：核心 module 依赖图零 gin / fiber 命中
+      - name: Zero-pollution check
+        run: |
+          if go list -deps ./... | grep -E 'gin-gonic|gofiber'; then
+            echo "core 依赖图被 gin/fiber 污染"
+            exit 1
+          fi

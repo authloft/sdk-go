@@ -1,0 +1,7 @@
+# proto 源文件不入库：唯一真相在主仓库 server/proto/**，
+# 由 CI（.github/workflows/sync.yml）从主仓库拉取拷贝到 /proto 后再生成；
+# 本地再生成需先自行拷贝（见 buf.gen.yaml 头注释）。
+/proto/
+
+# Go 构建产物
+*.exe

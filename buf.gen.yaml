@@ -1,0 +1,44 @@
+# Authloft 官方 Go SDK 生成链（docs/SDK-init.md §6 生成链衔接 / §6.1 工程形态与零污染）。
+# 规范命令：在仓库根目录下**无参**执行 `buf generate`（输入与生成范围已在本文件 inputs 固定）。
+# ⚠️ 不要带位置参数（如 `buf generate proto`）：位置参数会替换本文件 inputs、
+# 丢失 paths 过滤，把 /proto 全部 proto 越范围生成进 gen/。
+# 输入 proto/ 不入库（.gitignore 忽略）：proto 唯一真相在主仓库 server/proto/**，
+# 由 CI（.github/workflows/sync.yml）从主仓库拉取拷贝到本仓 /proto 后再生成；
+# 本地再生成需先自行拷贝（PowerShell：Copy-Item -Recurse <主仓库>/server/proto ./proto）。
+# 产物只写入 gen/**，入库、禁止手改（与 server/gen 同一纪律）。
+version: v2
+inputs:
+  # 输入为本仓 proto/ 目录（CI 从主仓库 server/proto 同步，不入库）；
+  # paths 按执行目录（仓库根）解析、须落在输入目录内，故带 proto/ 前缀，
+  # buf 按目录结构生成（产物路径 = gen/go/api/...，与 server 侧形态一致）。
+  - directory: proto
+    paths:
+      # rpc 域全部 4 个 proto（session/token/user/profile）：SDK 消费的报文与
+      # 客户端类型唯一真相（docs/SDK-init.md §6，SDK 不手写报文类型）。
+      - proto/api/rpc/v1
+      # 传递依赖：rpc/v1/profile.proto 引用 accountv1.UserProfile。
+      - proto/api/account/v1/profile.proto
+      # 传递依赖：account/v1/profile.proto 引用 commonv1.CaptchaConfig。
+      - proto/api/common/v1/captcha.proto
+      # ErrorInfo：Connect 错误体 details 的业务细分码消息（接口文档 §1.5 /
+      # proto 定义见 §12.9），核心包错误归一层（errors.go）解码用；
+      # 该 proto 无 import，无额外传递依赖。
+      - proto/api/common/v1/error_info.proto
+managed:
+  enabled: true
+  override:
+    # 原 proto go_package 写死 authloft/gen/go/...（裸名，SDK module 侧不可解析），
+    # 统一重映射为本 module 前缀 github.com/authloft/sdk-go/gen/go/...；
+    # buf 对 <名>/v1 形态目录自动派生包名 <名>v1（rpcv1 / accountv1 / commonv1），
+    # 与 server 侧产物包名保持一致（docs/SDK-init.md §6.1 零漂移）。
+    - file_option: go_package_prefix
+      value: github.com/authloft/sdk-go/gen/go
+plugins:
+  # 与主仓库 server/buf.gen.yaml 同插件同参数；版本由 PATH 二进制固定：
+  # protoc-gen-go v1.36.10 / protoc-gen-connect-go v1.21.1。
+  - local: protoc-gen-go
+    out: gen/go
+    opt: paths=source_relative
+  - local: protoc-gen-connect-go
+    out: gen/go
+    opt: paths=source_relative

@@ -1,0 +1,8 @@
+go 1.26.1
+
+use (
+	.
+	./adapter/fiber-v2
+	./adapter/fiber-v3
+	./adapter/gin
+)
